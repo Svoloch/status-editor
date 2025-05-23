@@ -72,6 +72,11 @@ type Msg
   | MsgActivateRole String
   | MsgActivateValidator String
   | MsgActivateModificator String
+  | MsgEditEdge Edge
+  | MsgEditStatus String
+  | MsgEditRole String
+  | MsgEditValidator String
+  | MsgEditModificator String
   | MsgChangeRoleInEdge Edge String Bool
   | MsgChangeValidatorInEdge Edge (Maybe String)
   | MsgChangeModificatorInEdge Edge (Maybe String)
@@ -93,6 +98,7 @@ type Msg
   | MsgMoveEdgeDown Edge
   | MsgClearEdge Edge
   | MsgRemoveEdge Edge
+  | MsgResetCurrentEdge
   | MsgMoveStatusStart String
   | MsgMoveStatusEnd String
   | MsgMoveStatusUp String
@@ -101,6 +107,7 @@ type Msg
   | MsgRemoveStatus String
   | MsgStartRenameStatus String
   | MsgRenameStatus String String
+  | MsgResetCurrentStatus
   | MsgMoveRoleStart String
   | MsgMoveRoleEnd String
   | MsgMoveRoleUp String
@@ -109,6 +116,7 @@ type Msg
   | MsgRemoveRole String
   | MsgStartRenameRole String
   | MsgRenameRole String String
+  | MsgResetCurrentRole
   | MsgMoveValidatorStart String
   | MsgMoveValidatorEnd String
   | MsgMoveValidatorUp String
@@ -117,6 +125,7 @@ type Msg
   | MsgRemoveValidator String
   | MsgStartRenameValidator String
   | MsgRenameValidator String String
+  | MsgResetCurrentValidator
   | MsgMoveModificatorStart String
   | MsgMoveModificatorEnd String
   | MsgMoveModificatorUp String
@@ -125,6 +134,7 @@ type Msg
   | MsgRemoveModificator String
   | MsgStartRenameModificator String
   | MsgRenameModificator String String
+  | MsgResetCurrentModificator
   | MsgLoadFromFile
   | MsgLoadFromUrl String
   | MsgUrlLoaded (Result Http.Error String)
@@ -146,11 +156,19 @@ type Msg
   | MsgClearJSON
   | MsgClearValue
   | MsgChangeLoadedUrl String
+  | MsgChangeIdent Int
+  | MsgChangeDefaultFileName String
+  | MsgChangePreferLabel Bool
   | MsgNone
 type alias AddedEdge =
   { from: Maybe String
   , to: Maybe String
   }
+type alias Config =
+  { ident: Int
+  , filename: String
+  , preferLabel: Bool
+  }  
 type alias Model =
   { value: Value
   , json: String
@@ -173,6 +191,7 @@ type alias Model =
     , selectedModificators: Set.Set String
     , loadedUrl: String
     }
+  , config: Config
   }
 type Tab
   = TabUtils
@@ -192,7 +211,7 @@ type Tab
   | TabModificatorData
   | TabRenameModificator
   | TabAnalytics
-  | TabOptions
+  | TabConfig
   | TabLoadedUrl
   | TabHelp
 
@@ -223,7 +242,12 @@ emptyValue =
     , modificators = OrderedDict.empty
     }
   }
-init () = (
+defaultConfig =
+  { ident = 0
+  , filename = "statuses.json"
+  , preferLabel = False
+  }
+init =
   { value = emptyValue
   , json = ""
   , tab = TabUtils
@@ -248,7 +272,5 @@ init () = (
     , selectedModificators = Set.empty
     , loadedUrl = ""
     }
-  }, Http.get
-  { url = "statuses.json"
-  , expect = Http.expectString MsgUrlLoaded
-  })
+  , config = defaultConfig
+  }

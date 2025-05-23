@@ -64,7 +64,6 @@ fromList list =
 toList ordered =
   ordered.keys
   |> List.map (\key -> (key, get key ordered))
-  --|> List.filter (\(_, val) -> val /= Nothing)
   |> List.filterMap (
     \(k, mv)-> case mv of
       Just v -> Just (k, v)

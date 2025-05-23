@@ -13,6 +13,9 @@ import Html.Events exposing (..)
 
 import Browser.Navigation
 
+import Json.Decode as JD
+import Json.Encode as JE
+
 import AbstractValue
 import Types exposing (..)
 import OrderedSet
@@ -57,7 +60,7 @@ drawTabs model = div []
     , class "navigation-btn"
     ] [text "🧮"]
   , button
-    [ onClick (MsgSelectTab TabOptions)
+    [ onClick (MsgSelectTab TabConfig)
     , title "настройки"
     , class "navigation-btn"
     ] [text "🗜"]
@@ -67,8 +70,8 @@ drawTabs model = div []
     , class "navigation-btn"
     ] [text "❓"]
   ]
---drawEdge: Model->Edge->Html Msg
-drawEdge model edge =
+
+drawMarkedEdge model edge =
   let
     (from, to) = edge
     edgeStyle = 
@@ -91,12 +94,51 @@ drawEdge model edge =
         ] []
       , span [] [
         span (edgeStyle ++ edgeEvents)
-          [ from |> text |> List.singleton |> span []
+          [ span [] <| List.singleton <| text <| (
+            if model.config.preferLabel
+            then
+              model.value.statuses
+              |> OrderedDict.get from
+              |> Maybe.andThen .label
+              |> Maybe.withDefault from
+            else from
+          )
           , text " -> "
-          , to |> text |> List.singleton |> span []
+          , span [] <| List.singleton <| text <| (
+            if model.config.preferLabel
+            then
+              model.value.statuses
+              |> OrderedDict.get to
+              |> Maybe.andThen .label
+              |> Maybe.withDefault to
+            else to
+          )
           ]
         ]
       ]
+drawEdge model (from, to) = li
+  [ onClick <| MsgEditEdge (from, to)]
+  [ span [] <| List.singleton <| text <| (
+    if model.config.preferLabel
+    then
+      model.value.statuses
+      |> OrderedDict.get from
+      |> Maybe.andThen .label
+      |> Maybe.withDefault from
+    else from
+  )
+  , text " -> "
+  , span [] <| List.singleton <| text <| (
+    if model.config.preferLabel
+    then
+      model.value.statuses
+      |> OrderedDict.get to
+      |> Maybe.andThen .label
+      |> Maybe.withDefault to
+    else to
+  )
+  ]
+
 drawStatus model status =
   let
     attrs =
@@ -175,9 +217,10 @@ drawContent model = case model.tab of
     [ button [onClick <| MsgSelectTab TabLoadedUrl] [text "из ссылки"]
     , button [onClick MsgLoadFromFile] [text "загрузить"]
     , a
-      [ download "statuses.json"
-      , href <| "data:text/json," ++ Utils.generateJSON model, id "save"
+      [ download model.config.filename
+      , href <| "data:text/json," ++ Utils.generateJSON model
       ] [button [] [text "сохранить"]]
+    -- , button [onClick MsgSeveToFile] [text "сохранить"]
     , button [onClick MsgShowJSON] [text "JSON"]
     , button [onClick MsgClearValue] [text "сбросить"]
     , br [] []
@@ -186,27 +229,83 @@ drawContent model = case model.tab of
     , button [onClick MsgClearJSON] [text "очистить"]
     ]
   TabEdges ->
-    let
-      edges = OrderedDict.keys model.value.edges
-      items = List.map  (drawEdge model) edges
-    in
-      div []
-        [ h1 [] [text "Переходы"]
-        , button [onClick MsgAddNewEdge] [text "добавить"]
-        , ul [] items
-        , button
-          [ class "navigation-btn"
-          , title "вначало"
-          , disabled <| Set.isEmpty model.state.selectedEdges
-          , onClick MsgMoveSelectedEdgesStart
-          ] [text "🔼"]
-        , button
-          [ class "navigation-btn"
-          , title "вначало"
-          , disabled <| Set.isEmpty model.state.selectedEdges
-          , onClick MsgMoveSelectedEdgesEnd
-          ] [text "🔽"]
-        ]
+    div []
+      [ h1 [] [text "Переходы"]
+      , button [onClick MsgAddNewEdge] [text "добавить"]
+      , ul [] <| List.map  (drawMarkedEdge model) <| OrderedDict.keys model.value.edges
+      , button
+        [ class "navigation-btn"
+        , title "вначало"
+        , disabled <| Set.isEmpty model.state.selectedEdges
+        , onClick MsgMoveSelectedEdgesStart
+        ] [text "🔼"]
+      , button
+        [ class "navigation-btn"
+        , title "вначало"
+        , disabled <| Set.isEmpty model.state.selectedEdges
+        , onClick MsgMoveSelectedEdgesEnd
+        ] [text "🔽"]
+      , button
+        [ class "navigation-btn"
+        , title "поднять"
+        , disabled <| (model.state.currentEdge == Nothing) || (model.state.currentEdge == List.head (OrderedDict.keys model.value.edges))
+        , onClick <| (
+          case model.state.currentEdge of
+            Just edge -> MsgMoveEdgeUp edge
+            Nothing -> MsgNone
+        )
+        ] [text "⬆️"]
+      , button
+        [ class "navigation-btn"
+        , title "опустить"
+        , disabled <| (model.state.currentEdge == Nothing) || (model.state.currentEdge == List.head (List.reverse (OrderedDict.keys model.value.edges)))
+        , onClick <| (
+          case model.state.currentEdge of
+            Just edge -> MsgMoveEdgeDown edge
+            Nothing -> MsgNone
+        )
+        ] [text "⬇️"]
+      , button
+        [ class "navigation-btn"
+        , title "в начало"
+        , disabled <| (model.state.currentEdge == Nothing) || (model.state.currentEdge == List.head (OrderedDict.keys model.value.edges))
+        , onClick <| (
+          case model.state.currentEdge of
+            Just edge -> MsgMoveEdgeStart edge
+            Nothing -> MsgNone
+        )
+        ] [text "⏫"]
+      , button
+        [ class "navigation-btn"
+        , title "в конец"
+        , disabled <| (model.state.currentEdge == Nothing) || (model.state.currentEdge == List.head (List.reverse (OrderedDict.keys model.value.edges)))
+        , onClick <| (
+          case model.state.currentEdge of
+            Just edge -> MsgMoveEdgeEnd edge
+            Nothing -> MsgNone
+        )
+        ] [text "⏬"]
+      , button
+        [ class "navigation-btn"
+        , title "очистить"
+        , disabled <| model.state.currentEdge == Nothing
+        , onClick <| (
+          case model.state.currentEdge of
+            Just edge -> MsgResetCurrentEdge
+            Nothing -> MsgNone
+        )
+        ] [text "❎"]
+      , button
+        [ class "navigation-btn"
+        , title "удалить"
+        , disabled <| model.state.currentEdge == Nothing
+        , onClick <| (
+          case model.state.currentEdge of
+            Just edge -> MsgRemoveEdge edge
+            Nothing -> MsgNone
+        )
+        ] [text "🚽"]
+      ]
   TabEdgeData -> case model.state.currentEdge of
     Just (from, to) ->
       let
@@ -260,7 +359,7 @@ drawContent model = case model.tab of
                   , checked hasRole
                   , onClick <| MsgChangeRoleInEdge (from, to) role (not hasRole)
                   ] []
-                , text role
+                , span [onClick <| MsgEditRole role] [text role]
                 ]) roles
         optionsValidator =
           option [selected <| edgeData.validator == Nothing, value ""] [text "---"]
@@ -350,11 +449,19 @@ drawContent model = case model.tab of
                     [ onInput <| \v-> MsgChangeValidatorInEdge (from, to) (if v == "" then Nothing else Just v)
                     , value (edgeData.validator |> Maybe.withDefault "")
                     ]  optionsValidator
+                  , button
+                    [ onClick (edgeData.validator |> Maybe.map MsgEditValidator |> Maybe.withDefault MsgNone)
+                    , disabled <| edgeData.validator == Nothing
+                    ] [text "🛠"]
                   , h2 [] [text "Модификатор:"]
                   , select
                     [ onInput <| \m-> MsgChangeModificatorInEdge (from, to) (if m == "" then Nothing else Just m)
                     , value (edgeData.modificator |> Maybe.withDefault "")
                     ] optionsModificator
+                  , button
+                    [ onClick (edgeData.modificator |> Maybe.map MsgEditModificator |> Maybe.withDefault MsgNone)
+                    , disabled <| edgeData.modificator == Nothing
+                    ] [text "🛠"]
                   ]
                 , span [style "display" "inline-block", style "vertical-align" "top"]
                   [ h2 [] [text "Роли:"]
@@ -473,6 +580,66 @@ drawContent model = case model.tab of
       , disabled <| Set.isEmpty model.state.selectedStatuses
       , onClick MsgMoveSelectedStatusesEnd
       ] [text "🔽"]
+    , button
+      [ class "navigation-btn"
+      , title "поднять"
+      , disabled <| (model.state.currentStatus == Nothing) || (model.state.currentStatus == List.head (OrderedDict.keys model.value.statuses))
+      , onClick <| (
+        case model.state.currentStatus of
+          Just status -> MsgMoveStatusUp status
+          Nothing -> MsgNone
+      )
+      ] [text "⬆️"]
+    , button
+      [ class "navigation-btn"
+      , title "опустить"
+      , disabled <| (model.state.currentStatus == Nothing) || (model.state.currentStatus == List.head (List.reverse (OrderedDict.keys model.value.statuses)))
+      , onClick <| (
+        case model.state.currentStatus of
+          Just status -> MsgMoveStatusDown status
+          Nothing -> MsgNone
+      )
+      ] [text "⬇️"]
+    , button
+      [ class "navigation-btn"
+      , title "в начало"
+      , disabled <| (model.state.currentStatus == Nothing) || (model.state.currentStatus == List.head (OrderedDict.keys model.value.statuses))
+      , onClick <| (
+        case model.state.currentStatus of
+          Just status -> MsgMoveStatusStart status
+          Nothing -> MsgNone
+      )
+      ] [text "⏫"]
+    , button
+      [ class "navigation-btn"
+      , title "в конец"
+      , disabled <| (model.state.currentStatus == Nothing) || (model.state.currentStatus == List.head (List.reverse (OrderedDict.keys model.value.statuses)))
+      , onClick <| (
+        case model.state.currentStatus of
+          Just status -> MsgMoveStatusEnd status
+          Nothing -> MsgNone
+      )
+      ] [text "⏬"]
+    , button
+      [ class "navigation-btn"
+      , title "очистить"
+      , disabled <| model.state.currentStatus == Nothing
+      , onClick <| (
+        case model.state.currentStatus of
+          Just status -> MsgResetCurrentStatus
+          Nothing -> MsgNone
+      )
+      ] [text "❎"]
+    , button
+      [ class "navigation-btn"
+      , title "удалить"
+      , disabled <| model.state.currentStatus == Nothing
+      , onClick <| (
+        case model.state.currentStatus of
+          Just status -> MsgRemoveStatus status
+          Nothing -> MsgNone
+      )
+      ] [text "🚽"]
     ]
   TabStatusData -> case model.state.currentStatus of
     Just status ->
@@ -522,7 +689,7 @@ drawContent model = case model.tab of
           , h2 [] [text "Иконка"]
           , hr [] []
           , div []
-            <| List.filterMap identity [ statusData.image |> Maybe.map (\im -> img [class "image",src im] [])
+            <| List.filterMap identity [ statusData.image |> Maybe.map (\im -> img [class "image", src im] [])
             , Just <| br [] []
             , Just <| button [onClick <| MsgLoadImageInStatusFromFile status] [text "загрузить"]
             , Just <| button [onClick <| MsgSelectTab TabChangeStatusImage] [text "ввести"]
@@ -541,7 +708,7 @@ drawContent model = case model.tab of
             ] []
           ]
         , ul [style "display" "inline-block"] <| List.map (
-          \to-> li []
+          \to -> li []
             [ button [onClick <| MsgSwitchEdge (to, status)] [text "--->"]
             , button [onClick <| MsgAddStatus to] [text to]
             ]
@@ -665,6 +832,66 @@ drawContent model = case model.tab of
       , disabled <| Set.isEmpty model.state.selectedRoles
       , onClick MsgMoveSelectedRolesEnd
       ] [text "🔽"]
+    , button
+      [ class "navigation-btn"
+      , title "поднять"
+      , disabled <| (model.state.currentRole == Nothing) || (model.state.currentRole == List.head (OrderedDict.keys model.value.edgeDataInfo.roles))
+      , onClick <| (
+        case model.state.currentRole of
+          Just role -> MsgMoveRoleUp role
+          Nothing -> MsgNone
+      )
+      ] [text "⬆️"]
+    , button
+      [ class "navigation-btn"
+      , title "опустить"
+      , disabled <| (model.state.currentRole == Nothing) || (model.state.currentRole == List.head (List.reverse (OrderedDict.keys model.value.edgeDataInfo.roles)))
+      , onClick <| (
+        case model.state.currentRole of
+          Just role -> MsgMoveRoleDown role
+          Nothing -> MsgNone
+      )
+      ] [text "⬇️"]
+    , button
+      [ class "navigation-btn"
+      , title "в начало"
+      , disabled <| (model.state.currentRole == Nothing) || (model.state.currentRole == List.head (OrderedDict.keys model.value.edgeDataInfo.roles))
+      , onClick <| (
+        case model.state.currentRole of
+          Just role -> MsgMoveRoleStart role
+          Nothing -> MsgNone
+      )
+      ] [text "⏫"]
+    , button
+      [ class "navigation-btn"
+      , title "в конец"
+      , disabled <| (model.state.currentRole == Nothing) || (model.state.currentRole == List.head (List.reverse (OrderedDict.keys model.value.edgeDataInfo.roles)))
+      , onClick <| (
+        case model.state.currentRole of
+          Just role -> MsgMoveRoleEnd role
+          Nothing -> MsgNone
+      )
+      ] [text "⏬"]
+    , button
+      [ class "navigation-btn"
+      , title "очистить"
+      , disabled <| model.state.currentRole == Nothing
+      , onClick <| (
+        case model.state.currentRole of
+          Just role -> MsgResetCurrentRole
+          Nothing -> MsgNone
+      )
+      ] [text "❎"]
+    , button
+      [ class "navigation-btn"
+      , title "удалить"
+      , disabled <| model.state.currentRole == Nothing
+      , onClick <| (
+        case model.state.currentRole of
+          Just role -> MsgRemoveRole role
+          Nothing -> MsgNone
+      )
+      ] [text "🚽"]
     ]
   TabRoleData -> case model.state.currentRole of
     Just role ->
@@ -691,21 +918,38 @@ drawContent model = case model.tab of
           else Just ro )
       in
         div []
-          [ h1 [] [text role]
-          , h2 [] [text "Название:"]
-          , br [] []
+          [ h1 [] [text "Роль:"]
+          , h1 [] [text role]
           , button [onClick <| MsgStartRenameRole role] [text "переименовать"]
-          , br [] []
-          , input
-            [ onInput (\l->MsgChangeLabelInRole role (Just l))
-            , value (roleData.label |> Maybe.withDefault "")
-            ] []
-          , h2 [] [text "Описание:"]
-          , textarea
-            [ onInput <| MsgChangeDescriptionInRole role
-            , value roleData.description
-            ] []
-          , div[]
+          , div []
+            [ div [style "display" "inline-block", style "vertical-align" "top"]
+              [ h2 [] [text "Название:"]
+              , br [] []
+              , input
+                [ onInput (MsgChangeLabelInRole role << Just)
+                , value (roleData.label |> Maybe.withDefault "")
+                ] []
+              , h2 [] [text "Описание:"]
+              , textarea
+                [ onInput <| MsgChangeDescriptionInRole role
+                , value roleData.description
+                ] []
+              ]
+            , div [style "display" "inline-block", style "vertical-align" "top"]
+              [ h2 [] [text "Испольхуются в:"]
+              , ul []
+                <| List.map (drawEdge model)
+                <| List.filter
+                  (
+                    \e -> OrderedDict.get e model.value.edges
+                      |> Maybe.map .roles
+                      |> Maybe.map (Set.member role)
+                      |> Maybe.withDefault False
+                  )
+                <| OrderedDict.keys model.value.edges
+              ]
+            ]
+          , div []
             [ button
               [ class "navigation-btn"
               , title "взад"
@@ -813,6 +1057,66 @@ drawContent model = case model.tab of
       , disabled <| Set.isEmpty model.state.selectedValidators
       , onClick MsgMoveSelectedValidatorsEnd
       ] [text "🔽"]
+    , button
+      [ class "navigation-btn"
+      , title "поднять"
+      , disabled <| (model.state.currentValidator == Nothing) || (model.state.currentValidator == List.head (OrderedDict.keys model.value.edgeDataInfo.roles))
+      , onClick <| (
+        case model.state.currentValidator of
+          Just validator -> MsgMoveValidatorUp validator
+          Nothing -> MsgNone
+      )
+      ] [text "⬆️"]
+    , button
+      [ class "navigation-btn"
+      , title "опустить"
+      , disabled <| (model.state.currentValidator == Nothing) || (model.state.currentValidator == List.head (List.reverse (OrderedDict.keys model.value.edgeDataInfo.roles)))
+      , onClick <| (
+        case model.state.currentValidator of
+          Just validator -> MsgMoveValidatorDown validator
+          Nothing -> MsgNone
+      )
+      ] [text "⬇️"]
+    , button
+      [ class "navigation-btn"
+      , title "в начало"
+      , disabled <| (model.state.currentValidator == Nothing) || (model.state.currentValidator == List.head (OrderedDict.keys model.value.edgeDataInfo.roles))
+      , onClick <| (
+        case model.state.currentValidator of
+          Just validator -> MsgMoveValidatorStart validator
+          Nothing -> MsgNone
+      )
+      ] [text "⏫"]
+    , button
+      [ class "navigation-btn"
+      , title "в конец"
+      , disabled <| (model.state.currentValidator == Nothing) || (model.state.currentValidator == List.head (List.reverse (OrderedDict.keys model.value.edgeDataInfo.roles)))
+      , onClick <| (
+        case model.state.currentValidator of
+          Just validator -> MsgMoveValidatorEnd validator
+          Nothing -> MsgNone
+      )
+      ] [text "⏬"]
+    , button
+      [ class "navigation-btn"
+      , title "очистить"
+      , disabled <| model.state.currentValidator == Nothing
+      , onClick <| (
+        case model.state.currentValidator of
+          Just validator -> MsgResetCurrentValidator
+          Nothing -> MsgNone
+      )
+      ] [text "❎"]
+    , button
+      [ class "navigation-btn"
+      , title "удалить"
+      , disabled <| model.state.currentValidator == Nothing
+      , onClick <| (
+        case model.state.currentValidator of
+          Just validator -> MsgRemoveValidator validator
+          Nothing -> MsgNone
+      )
+      ] [text "🚽"]
     ]
   TabValidatorData -> case model.state.currentValidator of
     Just validator ->
@@ -842,16 +1146,33 @@ drawContent model = case model.tab of
           [ h1 [] [text validator]
           , br [] []
           , button [onClick <| MsgStartRenameValidator validator] [text "переименовать"]
-          , h2 [] [text "Название:"]
-          , input
-            [ onInput (\l->MsgChangeLabelInValidator validator (Just l))
-            , value (validatorData.label |> Maybe.withDefault "")
-            ] []
-          , h2 [] [text "Описание:"]
-          , textarea
-            [ onInput <| MsgChangeDescriptionInValidator validator
-            , value validatorData.description
-            ] []
+          , div []
+            [ div [style "display" "inline-block", style "vertical-align" "top"]
+              [ h2 [] [text "Название:"]
+              , input
+                [ onInput (\l->MsgChangeLabelInValidator validator (Just l))
+                , value (validatorData.label |> Maybe.withDefault "")
+                ] []
+              , h2 [] [text "Описание:"]
+              , textarea
+                [ onInput <| MsgChangeDescriptionInValidator validator
+                , value validatorData.description
+                ] []
+              ]
+            , div [style "display" "inline-block", style "vertical-align" "top"]
+              [ h2 [] [text "Испольхуются в:"]
+              , ul []
+                <| List.map (drawEdge model)
+                <| List.filter
+                  (
+                    \v ->
+                      OrderedDict.get v model.value.edges
+                      |> Maybe.andThen .validator
+                      |> (==) (Just validator)
+                  )
+                <| OrderedDict.keys model.value.edges
+              ]
+            ]
           , div[]
             [ button
               [ class "navigation-btn"
@@ -960,6 +1281,66 @@ drawContent model = case model.tab of
       , disabled <| Set.isEmpty model.state.selectedModificators
       , onClick MsgMoveSelectedModificatorsEnd
       ] [text "🔽"]
+    , button
+      [ class "navigation-btn"
+      , title "поднять"
+      , disabled <| (model.state.currentModificator == Nothing) || (model.state.currentModificator == List.head (OrderedDict.keys model.value.edgeDataInfo.modificators))
+      , onClick <| (
+        case model.state.currentModificator of
+          Just modificator -> MsgMoveModificatorUp modificator
+          Nothing -> MsgNone
+      )
+      ] [text "⬆️"]
+    , button
+      [ class "navigation-btn"
+      , title "опустить"
+      , disabled <| (model.state.currentModificator == Nothing) || (model.state.currentModificator == List.head (List.reverse (OrderedDict.keys model.value.edgeDataInfo.modificators)))
+      , onClick <| (
+        case model.state.currentModificator of
+          Just modificator -> MsgMoveModificatorDown modificator
+          Nothing -> MsgNone
+      )
+      ] [text "⬇️"]
+    , button
+      [ class "navigation-btn"
+      , title "в начало"
+      , disabled <| (model.state.currentModificator == Nothing) || (model.state.currentModificator == List.head (OrderedDict.keys model.value.edgeDataInfo.modificators))
+      , onClick <| (
+        case model.state.currentModificator of
+          Just modificator -> MsgMoveModificatorStart modificator
+          Nothing -> MsgNone
+      )
+      ] [text "⏫"]
+    , button
+      [ class "navigation-btn"
+      , title "в конец"
+      , disabled <| (model.state.currentModificator == Nothing) || (model.state.currentModificator == List.head (List.reverse (OrderedDict.keys model.value.edgeDataInfo.modificators)))
+      , onClick <| (
+        case model.state.currentModificator of
+          Just modificator -> MsgMoveModificatorEnd modificator
+          Nothing -> MsgNone
+      )
+      ] [text "⏬"]
+    , button
+      [ class "navigation-btn"
+      , title "очистить"
+      , disabled <| model.state.currentModificator == Nothing
+      , onClick <| (
+        case model.state.currentModificator of
+          Just modificator -> MsgResetCurrentModificator
+          Nothing -> MsgNone
+      )
+      ] [text "❎"]
+    , button
+      [ class "navigation-btn"
+      , title "удалить"
+      , disabled <| model.state.currentModificator == Nothing
+      , onClick <| (
+        case model.state.currentModificator of
+          Just modificator -> MsgRemoveModificator modificator
+          Nothing -> MsgNone
+      )
+      ] [text "🚽"]
     ]
   TabModificatorData -> case model.state.currentModificator of
     Just modificator ->
@@ -989,16 +1370,33 @@ drawContent model = case model.tab of
           [ h1 [] [text modificator]
           , br [] []
           , button [onClick <| MsgStartRenameModificator modificator] [text "переименовать"]
-          , h2 [] [text "Название:"]
-          , input
-            [ onInput (\l->MsgChangeLabelInModificator modificator (Just l))
-            , value (modificatorData.label |> Maybe.withDefault "")
-            ] []
-          , h2 [] [text "Описание:"]
-          , textarea
-            [ onInput <| MsgChangeDescriptionInModificator modificator
-            , value modificatorData.description
-            ] []
+          , div []
+            [ div [style "display" "inline-block", style "vertical-align" "top"]
+              [ h2 [] [text "Название:"]
+              , input
+                [ onInput (\l->MsgChangeLabelInModificator modificator (Just l))
+                , value (modificatorData.label |> Maybe.withDefault "")
+                ] []
+              , h2 [] [text "Описание:"]
+              , textarea
+                [ onInput <| MsgChangeDescriptionInModificator modificator
+                , value modificatorData.description
+                ] []
+              ]
+            , div [style "display" "inline-block", style "vertical-align" "top"]
+              [ h2 [] [text "Испольхуются в:"]
+              , ul []
+                <| List.map (drawEdge model)
+                <| List.filter
+                  (
+                    \v ->
+                      OrderedDict.get v model.value.edges
+                      |> Maybe.andThen .modificator
+                      |> (==) (Just modificator)
+                  )
+                <| OrderedDict.keys model.value.edges
+              ]
+            ]
           , div[]
             [ button
               [ class "navigation-btn"
@@ -1069,7 +1467,7 @@ drawContent model = case model.tab of
         , type_ "text"
         ] []
       , button
-        [ onClick (MsgAddValidator model.state.addedModificator)
+        [ onClick (MsgAddModificator model.state.addedModificator)
         , disabled (model.state.addedModificator == "")
         ] [text "добавить"]
       ]
@@ -1086,6 +1484,38 @@ drawContent model = case model.tab of
       ]
     Nothing -> h1 [] [text "Warning!!!"]
   -- TabAnalytics -> div [] []
+  TabConfig -> div []
+    [ h1 [] [text "Настройки"]
+    , h2 [] [text "Сохранять в афйл:"]
+    , input
+      [ value model.config.filename
+      , onInput MsgChangeDefaultFileName
+      ] []
+    , br [] []
+    , h2 [] [text "Отступы"]
+    , pre [] [text <| JE.encode 0 <| JE.int model.config.ident]
+    , select
+      [ onInput
+        (
+          MsgChangeIdent
+          << Result.withDefault 0
+          << JD.decodeString JD.int
+        )
+      , value <| JE.encode 0 <| JE.int model.config.ident
+      ]
+      [ option [value "0", selected <| model.config.ident == 0] [text "0"]
+      , option [value "1", selected <| model.config.ident == 1] [text "1"]
+      , option [value "2", selected <| model.config.ident == 2] [text "2"]
+      , option [value "4", selected <| model.config.ident == 4] [text "4"]
+      , option [value "8", selected <| model.config.ident == 8] [text "8"]
+      ]
+    , h2 [] [text "Отображать в первую очередь метки"]
+    , input
+      [ type_ "checkbox"
+      , checked model.config.preferLabel
+      , onCheck MsgChangePreferLabel
+      ] []
+    ]
   TabLoadedUrl -> div []
     [ h1 [] [text "Загрузить из ссылки"]
     , input [onInput MsgChangeLoadedUrl, value model.state.loadedUrl] []

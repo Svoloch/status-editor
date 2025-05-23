@@ -310,33 +310,42 @@ update msg model =
     MsgActivateEdge edge ->
       let
         oldState = model.state
-        newState = {oldState| currentEdge = Just edge}
       in
-        ({model| state = newState}, Cmd.none)
+        ({ model| state = {oldState| currentEdge = Just edge}
+        }, Cmd.none)
     MsgActivateStatus status ->
       let
         oldState = model.state
-        newState = {oldState| currentStatus = Just status}
       in
-        ({model| state = newState}, Cmd.none)
+        ({ model
+        | state = {oldState| currentStatus = Just status}
+        }, Cmd.none)
     MsgActivateRole role ->
       let
         oldState = model.state
-        newState = {oldState| currentRole = Just role}
       in
-        ({model| state = newState}, Cmd.none)
+        ({ model
+        | state = {oldState| currentRole = Just role}
+        }, Cmd.none)
     MsgActivateValidator validator ->
       let
         oldState = model.state
-        newState = {oldState| currentValidator = Just validator}
       in
-        ({model| state = newState}, Cmd.none)
+        ({ model
+        | state = {oldState| currentValidator = Just validator}
+        }, Cmd.none)
     MsgActivateModificator modificator ->
       let
         oldState = model.state
-        newState = {oldState| currentModificator = Just modificator}
       in
-        ({model| state = newState}, Cmd.none)
+        ({ model
+        | state = {oldState| currentModificator = Just modificator}
+        }, Cmd.none)
+    MsgEditEdge edge -> update (MsgActivateEdge edge) {model| tab = TabEdgeData}
+    MsgEditStatus status -> update (MsgActivateStatus status) {model| tab = TabStatusData}
+    MsgEditRole role -> update (MsgActivateRole role) {model| tab = TabRoleData}
+    MsgEditValidator validator -> update (MsgActivateValidator validator) {model| tab = TabValidatorData}
+    MsgEditModificator modificator -> update (MsgActivateModificator modificator) {model| tab = TabModificatorData}
     MsgChangeLabelInStatus status label ->
       let
         oldValue = model.value
@@ -522,6 +531,11 @@ update msg model =
             ) edge oldState.selectedEdges
           }
         }, Cmd.none)
+    MsgResetCurrentEdge ->
+      let
+        oldState = model.state
+      in
+        ({model| state = {oldState| currentEdge = Nothing}}, Cmd.none)
     MsgMoveStatusStart status ->
       let
         oldValue = model.value
@@ -630,6 +644,11 @@ update msg model =
           , edges = newEdges
           }
         }, Cmd.none)
+    MsgResetCurrentStatus ->
+      let
+        oldState = model.state
+      in
+        ({model| state = {oldState| currentStatus = Nothing}}, Cmd.none)
     MsgMoveRoleStart role ->
       let
         oldValue = model.value
@@ -770,6 +789,11 @@ update msg model =
            ) model.value.edges
            }
         }, Cmd.none)
+    MsgResetCurrentRole ->
+      let
+        oldState = model.state
+      in
+        ({model| state = {oldState| currentRole = Nothing}}, Cmd.none)
     MsgMoveValidatorStart validator ->
       let
         oldValue = model.value
@@ -903,6 +927,11 @@ update msg model =
            ) model.value.edges
            }
         }, Cmd.none)
+    MsgResetCurrentValidator ->
+      let
+        oldState = model.state
+      in
+        ({model| state = {oldState| currentValidator = Nothing}}, Cmd.none)
     MsgMoveModificatorStart modificator ->
       let
         oldValue = model.value
@@ -1036,6 +1065,11 @@ update msg model =
            ) model.value.edges
            }
         }, Cmd.none)
+    MsgResetCurrentModificator ->
+      let
+        oldState = model.state
+      in
+        ({model| state = {oldState| currentModificator = Nothing}}, Cmd.none)
     MsgSelectStatus status value ->
       let
         oldState = model.state
@@ -1315,17 +1349,29 @@ update msg model =
       let
         oldState = model.state
       in ({model| state = {oldState| loadedUrl = url}}, Cmd.none)
-    --MsgSeveToFile -> (model, Browser.Navigation.load <| "data:application/octed-stream," ++ Utils.generateJSON model)
+    MsgSeveToFile -> (model, Browser.Navigation.load <| "data:application/octed-stream," ++ Utils.generateJSON model)
+    MsgChangeIdent ident ->
+      let
+        oldConfig = model.config
+      in ({model| config = {oldConfig| ident = ident}}, Cmd.none)
+    MsgChangePreferLabel val ->
+      let
+        oldConfig = model.config
+      in ({model| config = {oldConfig| preferLabel = val}}, Cmd.none)
+    MsgChangeDefaultFileName filename ->
+      let
+        oldConfig = model.config
+      in ({model| config = {oldConfig| filename = filename}}, Cmd.none)
     _ -> (model, Cmd.none)
 
 main =
   Browser.element
-    { init = init
-    --  (init, Http.get
-    --    { url = "statuses.json"
-    --    , expect = Http.expectString MsgUrlLoaded
-    --    }
-    --  )
+    { init = \() ->
+      ( init, Http.get
+        { url = "statuses.json"
+        , expect = Http.expectString MsgUrlLoaded
+        }
+      )
     , update = update
     , view = view
     , subscriptions = \_ -> Sub.none
